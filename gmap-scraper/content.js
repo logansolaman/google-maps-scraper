@@ -61,6 +61,12 @@ class GoogleMapsScraper {
         await this.waitForResume();
       }
 
+      // Check if we've reached the end of the list
+      if (this.hasReachedEndOfList(feedContainer)) {
+        console.log('Reached end of list message detected');
+        break;
+      }
+
       // Scroll to bottom
       feedContainer.scrollTop = feedContainer.scrollHeight;
       
@@ -85,6 +91,15 @@ class GoogleMapsScraper {
     }
 
     console.log(`Scrolling complete. Total scrolls: ${scrollCount}`);
+  }
+
+  hasReachedEndOfList(container) {
+    // Check if container contains the "You've reached the end of the list." message
+    const endMessage = container.querySelector('span.HlvSq');
+    if (endMessage && endMessage.textContent.includes("You've reached the end of the list.")) {
+      return true;
+    }
+    return false;
   }
 
   getFeedContainer() {
@@ -141,6 +156,8 @@ class GoogleMapsScraper {
     try {
       const data = {
         name: '',
+        rating: '',
+        reviewCount: '',
         category: '',
         address: '',
         phone: '',
@@ -155,6 +172,24 @@ class GoogleMapsScraper {
         return null;
       }
       data.name = nameElement.textContent.trim();
+
+      // Rating
+      const ratingElement = this.getElementByXPath(
+        './/div[2]/div[4]/div[1]/div/div/div[2]/div[3]/div/span[2]/span/span[1]',
+        article
+      );
+      if (ratingElement) {
+        data.rating = ratingElement.textContent.trim();
+      }
+
+      // Review Count
+      const reviewCountElement = this.getElementByXPath(
+        './/div[2]/div[4]/div[1]/div/div/div[2]/div[3]/div/span[2]/span/span[2]',
+        article
+      );
+      if (reviewCountElement) {
+        data.reviewCount = reviewCountElement.textContent.trim();
+      }
 
       // Click on the listing to load details
       const clickableElement = article.querySelector('a.hfpxzc');

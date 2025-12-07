@@ -128,13 +128,15 @@ function exportToCSV(data) {
   }
   
   // Create CSV header
-  const headers = ['Business Name', 'Category', 'Address', 'Phone', 'Website', 'Business Hours'];
+  const headers = ['Business Name', 'Rating', 'Review Count', 'Category', 'Address', 'Phone', 'Website', 'Business Hours'];
   const csvRows = [headers.join(',')];
   
   // Add data rows
   data.forEach(item => {
     const row = [
       escapeCSV(item.name || ''),
+      escapeCSV(item.rating || ''),
+      escapeCSV(item.reviewCount || ''),
       escapeCSV(item.category || ''),
       escapeCSV(item.address || ''),
       escapeCSV(item.phone || ''),
