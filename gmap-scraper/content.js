@@ -200,7 +200,7 @@ class GoogleMapsScraper {
       }
 
       // Website - from the detail panel
-      const websiteElement = document.querySelector('a[data-value="Website"]');
+      const websiteElement = this.getElementByXPath('//a[@data-tooltip="Open website"]');
       if (websiteElement) {
         data.website = websiteElement.href;
       }
