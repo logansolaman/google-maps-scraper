@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google Maps Scraper</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Google Maps Scraper</h1>
+    
+    <div class="counter-section">
+      <div class="counter-label">Scraped Businesses:</div>
+      <div class="counter-value" id="counter">0</div>
+    </div>
+    
+    <div class="status-section">
+      <div class="status" id="status">Ready to scrape</div>
+    </div>
+    
+    <div class="button-section">
+      <button id="scrapeBtn" class="btn btn-primary">Scrape</button>
+      <button id="pauseBtn" class="btn btn-secondary" disabled>Pause</button>
+      <button id="exportBtn" class="btn btn-success">Export</button>
+    </div>
+    
+    <div class="info-section">
+      <p class="info-text">Navigate to a Google Maps search page and click "Scrape" to start.</p>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

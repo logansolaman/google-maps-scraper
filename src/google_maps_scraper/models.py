@@ -9,3 +9,4 @@ class Location(BaseModel):
     title: str
     rating: str
     url: str
+    website: str | None = None

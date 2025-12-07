@@ -68,29 +68,79 @@ class GoogleMapsScraper:
     def _scroll_results_container(
         self, driver: webdriver.Chrome, container: webdriver.Chrome
     ) -> None:
+        """Scrolls the results container to load all available listings."""
         last_height = driver.execute_script(
             "return arguments[0].scrollHeight", container
         )
-
-        while True:
+        
+        # Track consecutive scrolls without new content
+        no_change_count = 0
+        max_no_change = 5  # Allow multiple attempts before giving up
+        
+        scroll_count = 0
+        max_scrolls = 100  # Prevent infinite loops
+        
+        self._logger.info("Starting to scroll results container...")
+        
+        while scroll_count < max_scrolls:
+            # Scroll to bottom
             driver.execute_script(
                 "arguments[0].scrollTop = arguments[0].scrollHeight", container
             )
-            time.sleep(2)
+            
+            # Wait for content to load
+            time.sleep(3)  # Increased wait time for lazy loading
+            
+            # Get new height
             new_height = driver.execute_script(
                 "return arguments[0].scrollHeight", container
             )
+            
+            scroll_count += 1
+            
             if new_height == last_height:
-                break
-            last_height = new_height
+                no_change_count += 1
+                self._logger.debug(f"No new content loaded (attempt {no_change_count}/{max_no_change})")
+                
+                if no_change_count >= max_no_change:
+                    self._logger.info(f"Reached end of results after {scroll_count} scrolls")
+                    break
+            else:
+                # New content loaded, reset counter
+                no_change_count = 0
+                self._logger.info(f"Scroll {scroll_count}: Loaded more results (height: {last_height} → {new_height})")
+                last_height = new_height
 
-    def _get_data_from_location_div(self, div: webdriver.Chrome) -> Location:
+    def _get_data_from_location_div(self, div: webdriver.Chrome) -> Location | None:
         """Retrieves location data from a div element and returns it as an Location object."""
-        title_element = div.find_element(By.CLASS_NAME, "hfpxzc")
-        title = title_element.get_attribute("aria-label")
-        rating = div.find_element(By.CLASS_NAME, "ZkP5Je").get_attribute("aria-label")
-        url = title_element.get_attribute("href")
-        return Location(title=title, rating=rating, url=url)
+        try:
+            title_element = div.find_element(By.CLASS_NAME, "hfpxzc")
+            title = title_element.get_attribute("aria-label")
+            url = title_element.get_attribute("href")
+            
+            # Rating might not always be present
+            try:
+                rating = div.find_element(By.CLASS_NAME, "ZkP5Je").get_attribute("aria-label")
+            except NoSuchElementException:
+                rating = "No rating"
+            
+            return Location(title=title, rating=rating, url=url, website=None)
+        except Exception as e:
+            self._logger.warning(f"Failed to extract data from location div: {e}")
+            return None
+
+    def _get_website_from_location_page(self, driver: webdriver.Chrome) -> str | None:
+        """Extracts the website URL from a location's detail page."""
+        try:
+            # Try to find the website link using the data-value attribute
+            website_element = driver.find_element(By.XPATH, "//a[@data-value='Website']")
+            website_url = website_element.get_attribute("href")
+            return website_url
+        except NoSuchElementException:
+            return None
+        except Exception as e:
+            self._logger.debug(f"Error extracting website: {e}")
+            return None
 
     def _get_locations_from_page(
         self, url: str, driver: webdriver.Chrome, full: bool | None = False
@@ -100,13 +150,61 @@ class GoogleMapsScraper:
         time.sleep(2)
 
         if full:
-            result_container_xpath = "//div[contains(@aria-label, 'Results for')]"  # Xpath for the results container
-            results_container = driver.find_element(By.XPATH, result_container_xpath)
-            self._scroll_results_container(driver, results_container)
-            time.sleep(2)
+            # Try multiple possible XPaths for the results container
+            result_container_xpaths = [
+                "//div[contains(@aria-label, 'Results for')]",
+                "//div[@role='feed']",
+                "//div[contains(@class, 'm6QErb')]",
+            ]
+            
+            results_container = None
+            for xpath in result_container_xpaths:
+                try:
+                    results_container = driver.find_element(By.XPATH, xpath)
+                    self._logger.info(f"Found results container using XPath: {xpath}")
+                    break
+                except NoSuchElementException:
+                    continue
+            
+            if results_container:
+                # Check initial count
+                initial_divs = driver.find_elements(By.CLASS_NAME, "Nv2PK")
+                self._logger.info(f"Initial results count: {len(initial_divs)}")
+                
+                self._scroll_results_container(driver, results_container)
+                time.sleep(2)
+                
+                # Check final count after scrolling
+                final_divs = driver.find_elements(By.CLASS_NAME, "Nv2PK")
+                self._logger.info(f"After scrolling: {len(final_divs)} results loaded")
+            else:
+                self._logger.warning("Could not find results container to scroll. Proceeding with visible results only.")
 
         location_divs = driver.find_elements(By.CLASS_NAME, "Nv2PK")
-        return [self._get_data_from_location_div(div) for div in location_divs]
+        self._logger.info(f"Found {len(location_divs)} location divs")
+        
+        locations = []
+        for idx, div in enumerate(location_divs):
+            location = self._get_data_from_location_div(div)
+            if location:
+                # Click on the location to open its detail page
+                try:
+                    title_element = div.find_element(By.CLASS_NAME, "hfpxzc")
+                    title_element.click()
+                    time.sleep(1.5)  # Wait for the detail page to load
+                    
+                    # Extract website from the detail page
+                    website = self._get_website_from_location_page(driver)
+                    location.website = website
+                    
+                    self._logger.debug(f"Location {idx + 1}/{len(location_divs)}: {location.title} - Website: {website or 'Not found'}")
+                except Exception as e:
+                    self._logger.debug(f"Could not extract website for location: {e}")
+                
+                locations.append(location)
+        
+        self._logger.info(f"Successfully extracted {len(locations)} locations")
+        return locations
 
     def get_maps_data(self, url: str, full: bool | None = False) -> List[Location]:
         """
