@@ -2,13 +2,20 @@
 
 let scrapedData = [];
 let isScraperActive = false;
+let businessTypes = [];
+let isBatchScraping = false;
 
 const elements = {
   counter: document.getElementById('counter'),
   status: document.getElementById('status'),
   scrapeBtn: document.getElementById('scrapeBtn'),
   pauseBtn: document.getElementById('pauseBtn'),
-  exportBtn: document.getElementById('exportBtn')
+  exportBtn: document.getElementById('exportBtn'),
+  csvFile: document.getElementById('csvFile'),
+  batchScrapeBtn: document.getElementById('batchScrapeBtn'),
+  progressSection: document.getElementById('progressSection'),
+  progressLabel: document.getElementById('progressLabel'),
+  currentBusiness: document.getElementById('currentBusiness')
 };
 
 // Load saved state when popup opens
@@ -70,6 +77,96 @@ elements.pauseBtn.addEventListener('click', async () => {
     }
   });
 });
+
+// CSV File Upload Handler
+elements.csvFile.addEventListener('change', async (event) => {
+  const file = event.target.files[0];
+  if (!file) {
+    elements.batchScrapeBtn.disabled = true;
+    return;
+  }
+  
+  try {
+    const text = await file.text();
+    businessTypes = parseCSV(text);
+    
+    if (businessTypes.length > 0) {
+      elements.batchScrapeBtn.disabled = false;
+      updateStatus(`Loaded ${businessTypes.length} business types`, false, false);
+    } else {
+      elements.batchScrapeBtn.disabled = true;
+      updateStatus('No business types found in CSV', false, false);
+    }
+  } catch (error) {
+    console.error('Error reading CSV:', error);
+    elements.batchScrapeBtn.disabled = true;
+    updateStatus('Error reading CSV file', false, false);
+  }
+});
+
+// Batch Scrape Button
+elements.batchScrapeBtn.addEventListener('click', async () => {
+  if (isBatchScraping) return;
+  
+  isBatchScraping = true;
+  elements.batchScrapeBtn.disabled = true;
+  elements.scrapeBtn.disabled = true;
+  elements.csvFile.disabled = true;
+  elements.progressSection.style.display = 'block';
+  
+  // Create a persistent window for the popup
+  const popupWindow = await chrome.windows.create({
+    url: chrome.runtime.getURL('popup.html'),
+    type: 'popup',
+    width: 380,
+    height: 600,
+    focused: true,
+    top: 0,
+    left: screen.width - 400
+  });
+  
+  // Store window ID for later use
+  chrome.storage.local.set({ popupWindowId: popupWindow.id });
+  
+  // Run batch scraping in background
+  chrome.runtime.sendMessage({
+    action: 'startBatchScrape',
+    businessTypes: businessTypes
+  });
+  
+  // Close the original popup
+  window.close();
+});
+
+// Listen for batch scrape updates from background
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'batchProgress') {
+    elements.progressLabel.textContent = `Progress: ${message.current} of ${message.total}`;
+    elements.currentBusiness.textContent = `Scraping: ${message.businessType}`;
+  } else if (message.action === 'batchComplete') {
+    isBatchScraping = false;
+    elements.batchScrapeBtn.disabled = false;
+    elements.scrapeBtn.disabled = false;
+    elements.csvFile.disabled = false;
+    elements.progressSection.style.display = 'none';
+    updateStatus('Batch scraping completed!', false, false);
+  }
+});
+
+function parseCSV(text) {
+  const lines = text.split('\n');
+  const types = [];
+  
+  // Skip header row and process business types
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line && line !== 'Business Types') {
+      types.push(line);
+    }
+  }
+  
+  return types;
+}
 
 // Export button
 elements.exportBtn.addEventListener('click', async () => {
