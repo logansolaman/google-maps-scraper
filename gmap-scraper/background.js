@@ -43,8 +43,8 @@ async function runBatchScrape(businessTypes) {
     updatePopupProgress(i + 1, businessTypes.length, businessType);
     
     try {
-      // Create new tab with Coventry location (not active)
-      const tab = await chrome.tabs.create({ url: baseUrl, active: false });
+      // Create new tab with Coventry location (make it active so you can see it)
+      const tab = await chrome.tabs.create({ url: baseUrl, active: true });
       
       // Wait for tab to load
       await waitForTabLoad(tab.id);
@@ -81,10 +81,12 @@ async function runBatchScrape(businessTypes) {
         // Get the scraped data
         const dataResponse = await chrome.tabs.sendMessage(tab.id, { action: 'getData' });
         
+        console.log(`Data response for ${businessType}:`, dataResponse);
+        
         if (dataResponse && dataResponse.data && dataResponse.data.length > 0) {
           // Export data with business type in filename
+          console.log(`Exporting ${dataResponse.data.length} records for ${businessType}`);
           exportToCSVWithName(dataResponse.data, businessType);
-          console.log(`Scraped ${dataResponse.data.length} businesses for ${businessType}`);
         } else {
           console.log(`No results for ${businessType}, skipping...`);
         }
@@ -208,14 +210,20 @@ function exportToCSVWithName(data, businessType) {
   const sanitizedBusinessType = businessType.replace(/[^a-z0-9]/gi, '_');
   const filename = `${sanitizedBusinessType}_${datetime}_${timestamp}.csv`;
   
-  // Create blob and download
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
+  // Create data URL (works better in service workers than blob URLs)
+  const dataUrl = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
   
   chrome.downloads.download({
-    url: url,
+    url: dataUrl,
     filename: filename,
-    saveAs: false
+    saveAs: false,
+    conflictAction: 'uniquify'
+  }, (downloadId) => {
+    if (chrome.runtime.lastError) {
+      console.error('Download error:', chrome.runtime.lastError);
+    } else {
+      console.log(`Downloaded: ${filename} (ID: ${downloadId})`);
+    }
   });
 }
 
