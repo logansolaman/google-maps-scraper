@@ -69,7 +69,7 @@ async function runBatchScrape(businessTypes) {
       });
       
       // Wait for search to complete and results to load
-      await sleep(5000);
+      await waitForSearchResults(tab.id);
       
       // Start scraping
       const response = await chrome.tabs.sendMessage(tab.id, { action: 'startScraping' });
@@ -94,8 +94,15 @@ async function runBatchScrape(businessTypes) {
         console.log(`Error scraping ${businessType}, skipping...`);
       }
       
+      // Send cleanup message to content script before closing tab
+      try {
+        await chrome.tabs.sendMessage(tab.id, { action: 'cleanup' });
+      } catch (error) {
+        console.log('Tab already closed or cleanup failed');
+      }
+      
       // Close the tab
-      await chrome.tabs.remove(tab.id);
+      await chrome.tabs.remove(tab.id).catch(err => console.log('Tab removal error:', err));
       
       // Small delay between business types
       await sleep(2000);
@@ -125,13 +132,18 @@ function searchForBusiness(businessType) {
   
   // Type the business type character by character
   let currentIndex = 0;
-  const typeInterval = setInterval(() => {
+  let typeInterval = null;
+  
+  typeInterval = setInterval(() => {
     if (currentIndex < businessType.length) {
       searchInput.value += businessType[currentIndex];
       searchInput.dispatchEvent(new Event('input', { bubbles: true }));
       currentIndex++;
     } else {
-      clearInterval(typeInterval);
+      if (typeInterval) {
+        clearInterval(typeInterval);
+        typeInterval = null;
+      }
       
       // Press Enter after a short delay
       setTimeout(() => {
@@ -146,6 +158,14 @@ function searchForBusiness(businessType) {
       }, 300);
     }
   }, 50);
+  
+  // Cleanup interval after max time to prevent leaks
+  setTimeout(() => {
+    if (typeInterval) {
+      clearInterval(typeInterval);
+      typeInterval = null;
+    }
+  }, 10000); // 10 second failsafe
 }
 
 function waitForTabLoad(tabId) {
@@ -161,8 +181,19 @@ function waitForTabLoad(tabId) {
 
 async function waitForScrapingComplete(tabId) {
   return new Promise((resolve) => {
+    const maxWaitTime = 5 * 60 * 1000; // 5 minutes maximum
+    const startTime = Date.now();
+    
     const checkInterval = setInterval(async () => {
       try {
+        // Check if we've exceeded maximum wait time
+        if (Date.now() - startTime > maxWaitTime) {
+          console.warn('Scraping timeout exceeded (5 minutes), moving to next business type');
+          clearInterval(checkInterval);
+          resolve();
+          return;
+        }
+        
         const state = await chrome.tabs.sendMessage(tabId, { action: 'getState' });
         if (state && !state.isActive) {
           clearInterval(checkInterval);
@@ -178,6 +209,37 @@ async function waitForScrapingComplete(tabId) {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function waitForSearchResults(tabId) {
+  const maxWaitTime = 15000; // 15 seconds max
+  const startTime = Date.now();
+  
+  while (Date.now() - startTime < maxWaitTime) {
+    try {
+      const result = await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: () => {
+          // Check if results are loaded
+          const feedContainer = document.querySelector('div[role="feed"]');
+          const articles = document.querySelectorAll('div[role="article"]');
+          return feedContainer && articles.length > 0;
+        }
+      });
+      
+      if (result && result[0] && result[0].result) {
+        console.log('Search results loaded');
+        await sleep(2000); // Additional buffer time
+        return;
+      }
+    } catch (error) {
+      console.log('Waiting for search results...');
+    }
+    
+    await sleep(1000);
+  }
+  
+  console.log('Search results wait timeout, proceeding anyway');
 }
 
 function exportToCSVWithName(data, businessType) {

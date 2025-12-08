@@ -10,6 +10,19 @@ class GoogleMapsScraper {
     this.maxScrollAttempts = 5;
     this.lastScrollHeight = 0;
   }
+  
+  cleanup() {
+    // Clear all data and reset state
+    this.scrapedData = [];
+    this.isActive = false;
+    this.isPaused = false;
+    this.currentIndex = 0;
+    this.scrollAttempts = 0;
+    this.lastScrollHeight = 0;
+    
+    console.log('Scraper memory cleaned up');
+    return { success: true };
+  }
 
   async startScraping() {
     if (this.isActive) {
@@ -325,6 +338,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.action === 'getState') {
     const state = scraper.getState();
     sendResponse(state);
+  } else if (message.action === 'cleanup') {
+    const result = scraper.cleanup();
+    sendResponse(result);
   }
   
   return true;
